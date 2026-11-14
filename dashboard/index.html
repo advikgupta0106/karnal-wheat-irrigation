@@ -1,8 +1,8 @@
-<title>Karnal Wheat Irrigation Predictor</title>
+<title>Karnal Wheat Irrigation Advisor: design concept</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <style>
 /* Layout: eight live phone screens in a wrapping grid; every field edit re-runs the water balance on all screens. */
-:root{--deep:#123B46;--teal:#176B68;--mint:#55A69A;--pale:#C6E1DB;--white:#F4F7F3;--gold:#E3B65C;--coral:#D56C5C;--ink:#243338;--mut:#5b6e72;--card:#FFFFFF;--line:#dde8e4;--font:'Plus Jakarta Sans',system-ui,sans-serif;color-scheme:light}
+:root{--deep:#123B46;--teal:#176B68;--mint:#55A69A;--pale:#C6E1DB;--white:#F4F7F3;--gold:#E3B65C;--coral:#D56C5C;--ink:#243338;--mut:#5b6e72;--card:#FFFFFF;--line:#dde8e4;--font:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;color-scheme:light}
 *{box-sizing:border-box}
 body{background:var(--white);color:var(--ink);font-family:var(--font);margin:0;padding-block:28px 48px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));font-size:14px}
 .wrap{max-width:1180px;margin:0 auto}
@@ -11,6 +11,8 @@ header{display:flex;gap:16px;align-items:center;flex-wrap:wrap;margin-bottom:18p
 h1{font-size:26px;margin:0;color:var(--deep);letter-spacing:-.02em;text-wrap:balance}
 .sub{color:var(--mut);margin:2px 0 0}
 .swatches{display:flex;gap:8px;flex-wrap:wrap;margin-left:auto}.sw{width:22px;height:22px;border-radius:50%;border:1px solid var(--line)}
+.banner{background:#FDF4E0;border:1px solid var(--gold);border-left:5px solid var(--gold);border-radius:12px;padding:14px 16px;color:#5a4410;font-size:13px;line-height:1.55;margin-bottom:20px}
+.banner b{color:#3f2f06}
 .note{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 16px;color:var(--mut);font-size:13px;margin-bottom:28px;line-height:1.5}
 .note button{font:600 12px var(--font);border:1px solid var(--teal);color:var(--teal);background:none;border-radius:999px;padding:4px 12px;cursor:pointer;margin-left:6px}
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(262px,1fr));gap:36px 24px;justify-items:center}
@@ -52,9 +54,10 @@ svg text{font-family:var(--font);fill:var(--mut);font-size:8px}
 .foot{margin-top:28px;color:var(--mut);font-size:12px;line-height:1.6}
 </style>
 <div class="wrap">
+<div class="banner" role="note"><b>Design concept of a farmer-facing app.</b> It replays archived weather for Karnal up to 31 Mar 2026. It is not a live system. Tomorrow's crop water use is estimated with the persistence rule (tomorrow = today), not our ML model. This is a prototype, not expert farm advice.</div>
 <header>
  <div class="logo"><svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#F4F7F3" stroke-width="1.8" stroke-linecap="round"><path d="M12 22V9M12 9c0-3 2-5 5-5 0 3-2 5-5 5zM12 9C12 6 10 4 7 4c0 3 2 5 5 5zM12 15c0-3 2-5 5-5 0 3-2 5-5 5zM12 15c0-3-2-5-5-5 0 3 2 5 5 5z"/></svg></div>
- <div><h1>Karnal Wheat Irrigation Predictor</h1><p class="sub">Data-driven. Efficient. Future-ready.</p></div>
+ <div><h1>Karnal Wheat Irrigation Advisor: design concept</h1><p class="sub">Data-driven. Efficient. Future-ready.</p></div>
  <div class="swatches" aria-hidden="true"><i class="sw" style="background:#123B46"></i><i class="sw" style="background:#176B68"></i><i class="sw" style="background:#55A69A"></i><i class="sw" style="background:#C6E1DB"></i><i class="sw" style="background:#F4F7F3"></i><i class="sw" style="background:#E3B65C"></i><i class="sw" style="background:#D56C5C"></i><i class="sw" style="background:#243338"></i></div>
 </header>
 <div class="note">Type into <b>My Field</b> (area, soil, variety, sowing date, last irrigation) or <b>Weather</b> (today's ET0, expected rain) and every screen updates. Tomorrow's crop water loss is assumed equal to today's. <button id="reset">Reset all inputs</button></div>
@@ -68,7 +71,9 @@ const SOILS={'Sandy loam':40,'Loam':60,'Clay loam':80}, VARIETIES=['HD 2967','HD
 const DEF={area:2.5,soil:'Loam',variety:'HD 2967',sow:'2025-11-15',last:'2026-03-25',rainTom:0,wx:{et0:D.et0[LAST],tmax:D.tmax[LAST],tmin:D.tmin[LAST],rh:D.rh[LAST],wind:D.wind[LAST],rad:D.rad[LAST],rain:D.rain[LAST]}};
 let S=JSON.parse(JSON.stringify(DEF));
 /* Tomorrow's ET0 = today's ET0 (the notebook's persistence rule). */
-// #advik this is where the model is
+// PERSISTENCE RULE, NOT OUR ML MODEL: tomorrow's ET0 is taken to equal today's.
+// The notebook's model and Open-Meteo's forecast are both more accurate than this;
+// neither is wired into this design concept.
 const predict=(wx)=>Math.max(0,+wx.et0||0);
 /* ---- crop curve and water balance (FAO-56 Kc, notebook stage lengths) ---- */
 const SEG=[25,55,45,25],KCI=.7,KCM=1.15,KCE=.4;
@@ -89,7 +94,7 @@ function calc(){
  // auto-called irrigations for History
  let d2=0;const ev=[];for(let i=sowI;i<=LAST;i++){d2=Math.max(0,d2+kc(i)*Math.max(0,D.et0[i])-D.rain[i]);if(d2>=trig){ev.push(D.dates[i]);d2=0}}
  const pet=predict(S.wx), kcT=kcAt(DAS+1), etcT=kcT*pet, rainT=+S.rainTom||0;
- const defT=Math.max(0,def+etcT-rainT), net=Math.max(0.1,etcT-rainT);
+ const defT=Math.max(0,def+etcT-rainT);
  const days=defT>=trig?0:Math.ceil((trig-defT)/Math.max(0.5,etcT)), yes=defT>=trig||days<=1;
  const rem=Math.max(0,trig-def);
  const qtyMm=Math.round(defT*10)/10, m3=Math.round(qtyMm*10*S.area);
@@ -110,7 +115,7 @@ function chart(c,w,h){
  const li=s.length-1;
  return `<svg viewBox="0 0 ${w} ${h}" width="100%"><path d="M${X(0)},${h-14} L${pts.replaceAll(' ',' L')} L${X(li)},${h-14}Z" fill="var(--mint)" opacity=".22"/><line x1="8" x2="${w-8}" y1="${Y(c.trig)}" y2="${Y(c.trig)}" stroke="var(--coral)" stroke-dasharray="3 3"/><text x="${w-8}" y="${Y(c.trig)-3}" text-anchor="end">${c.trig} mm trigger</text><polyline points="${pts}" fill="none" stroke="var(--teal)" stroke-width="1.8"/><line x1="${X(li)}" y1="${Y(s[li])}" x2="${X(n-1)}" y2="${Y(c.defT)}" stroke="var(--gold)" stroke-width="1.8" stroke-dasharray="3 2"/><circle cx="${X(li)}" cy="${Y(s[li])}" r="3" fill="var(--teal)"/><circle cx="${X(n-1)}" cy="${Y(c.defT)}" r="3.4" fill="var(--gold)"/><text x="8" y="${h-3}">${fmt(D.dates[LAST-s.length+1])}</text><text x="${w-8}" y="${h-3}" text-anchor="end">Tomorrow</text></svg>`;
 }
-function gauge(p){const R=44,C=2*Math.PI*R;return `<svg viewBox="0 0 110 110" width="108"><circle cx="55" cy="55" r="${R}" fill="none" stroke="var(--pale)" stroke-width="9"/><circle cx="55" cy="55" r="${R}" fill="none" stroke="var(--teal)" stroke-width="9" stroke-linecap="round" stroke-dasharray="${C*p/100} ${C}" transform="rotate(-90 55 55)"/><text x="55" y="58" text-anchor="middle" style="font-size:24px;font-weight:800;fill:#243338">${p}%</text><text x="55" y="72" text-anchor="middle" style="font-size:8px">soil water left</text></svg>`}
+function gauge(p){const R=44,C=2*Math.PI*R;return `<svg viewBox="0 0 110 110" width="108"><circle cx="55" cy="55" r="${R}" fill="none" stroke="var(--pale)" stroke-width="9"/><circle cx="55" cy="55" r="${R}" fill="none" stroke="var(--teal)" stroke-width="9" stroke-linecap="round" stroke-dasharray="${C*p/100} ${C}" transform="rotate(-90 55 55)"/><text x="55" y="58" text-anchor="middle" style="font-size:24px;font-weight:800;fill:#243338">${p}%</text><text x="55" y="71" text-anchor="middle" style="font-size:7.5px">% of trigger remaining</text><text x="55" y="80" text-anchor="middle" style="font-size:6px">estimated from weather,</text><text x="55" y="87" text-anchor="middle" style="font-size:6px">not measured in the field</text></svg>`}
 const inp=(id,label,val,type='number',extra='')=>`<div class="f"><label for="${id}">${label}</label><input id="${id}" data-k="${id}" type="${type}" value="${val}" ${extra}></div>`;
 const sel=(id,label,val,opts)=>`<div class="f"><label for="${id}">${label}</label><select id="${id}" data-k="${id}">${opts.map(o=>`<option ${o==val?'selected':''}>${o}</option>`).join('')}</select></div>`;
 function render(){
@@ -121,29 +126,29 @@ function render(){
  const sc=[];
  sc.push(['1. Home','Quick overview of the recommendation, key stats and weather.',
  `<div class="top" style="padding:0 2px">Karnal Wheat Irrigation</div>
- <div class="card hero"><small>Irrigation recommendation</small><div style="display:flex;align-items:center;justify-content:space-between;margin:6px 0"><span class="big ${c.yes?'yes':'no'}">${dec}</span><span class="pill">${c.trig} mm trigger</span></div><div style="font-size:12px;font-weight:600">${when}</div></div>
+ <div class="card hero"><small>Irrigation recommendation</small><div style="font-size:9.5px;opacity:.85;margin-top:2px">As of ${fmt(ASOF,{day:'numeric',month:'short',year:'numeric'})}</div><div style="display:flex;align-items:center;justify-content:space-between;margin:6px 0"><span class="big ${c.yes?'yes':'no'}">${dec}</span><span class="pill">${c.trig} mm trigger</span></div><div style="font-size:12px;font-weight:600">${when}</div></div>
  <div class="two"><div class="card"><div class="k">Soil water deficit</div><div class="v">${mm(c.def)}</div><div class="k">${c.rem.toFixed(1)} mm to trigger</div></div><div class="card"><div class="k">Next irrigation</div><div class="v" style="font-size:17px">${c.yes?'Now':'in '+c.days+' d'}</div><div class="k">${c.yes?c.qtyMm+' mm':'${S.area} ha'.replace('${S.area}',S.area)}</div></div></div>
- <div class="card"><div class="k" style="margin-bottom:4px">Tomorrow's crop water loss</div><div style="display:flex;gap:10px;align-items:center"><div class="v" style="font-size:24px">${c.pet}<small> mm</small></div><div class="k" style="line-height:1.6">Crop water loss (ET0)<br>Same as today<br>Crop use ${c.etcT} mm</div></div></div>`,0,false]);
+ <div class="card"><div class="k" style="margin-bottom:4px">Tomorrow's estimated crop water use (persistence rule)</div><div style="display:flex;gap:10px;align-items:center"><div class="v" style="font-size:24px">${c.pet}<small> mm</small></div><div class="k" style="line-height:1.6">Estimated ET0<br>Persistence rule: same as today<br>Crop use ${c.etcT} mm</div></div></div>`,0,false]);
  sc.push(['2. My Field','Type your field details. Every screen recalculates.',
  `<div class="card fl">${inp('area','Field area (hectares)',S.area,'number','min="0.1" step="0.1"')}${sel('soil','Soil type (sets the trigger)',S.soil,Object.keys(SOILS))}${sel('variety','Wheat variety',S.variety,VARIETIES)}${inp('sow','Sowing date',S.sow,'date',`min="2025-11-01" max="2025-12-15"`)}${inp('last','Last irrigation (blank if none)',S.last,'date',`min="${S.sow}" max="${ASOF}"`)}</div>
  <div class="card"><div class="row"><span class="k">Trigger deficit</span><b>${c.trig} mm</b></div><div class="row"><span class="k">Kc today</span><b>${c.kcNow.toFixed(2)}</b></div><div class="row"><span class="k">Days after sowing</span><b>${c.DAS}</b></div></div>`,1]);
  sc.push(['3. Weather','Enter today\'s ET0 and expected rain.',
  `<div class="card"><div class="k">Last 7 days, Karnal</div><div style="display:grid;grid-template-columns:repeat(7,1fr);gap:2px;text-align:center;margin-top:6px">${days7.map(i=>`<div><div class="k">${fmt(D.dates[i],{weekday:'short'}).slice(0,3)}</div><div style="font-weight:800;margin-top:2px">${Math.round(D.tmax[i])}°</div><div class="k">${Math.round(D.tmin[i])}°</div><div style="height:${Math.min(30,Math.max(2,D.rain[i]*4))}px;background:var(--mint);border-radius:3px;margin:5px 4px 0"></div><div class="k">${D.rain[i]}</div></div>`).join('')}</div></div>
  <div class="card"><div class="k" style="margin-bottom:6px">Today's weather (editable)</div><div class="two">${inp('w_et0','ET0 today mm',S.wx.et0,'number','step="0.1"')}${inp('rainTom','Rain tomorrow mm',S.rainTom,'number','step="0.1"')}</div></div>
- <div class="card hero" style="padding:10px"><small>Tomorrow's ET0 (same as today)</small><div class="big" style="font-size:24px;margin-top:4px">${c.pet} <span style="font-size:12px;font-weight:600">mm</span></div></div>`,3]);
+ <div class="card hero" style="padding:10px"><small>Tomorrow's estimated ET0 (persistence rule)</small><div class="big" style="font-size:24px;margin-top:4px">${c.pet} <span style="font-size:12px;font-weight:600">mm</span></div></div>`,3]);
  sc.push(['4. Water Balance','Water used, received and still in the soil.',
  `<div class="card" style="display:grid;justify-items:center;padding:8px">${gauge(c.pct)}</div>
  <div class="two"><div class="card"><div class="k">Crop use today</div><div class="v">${mm(c.etcNow)}</div></div><div class="card"><div class="k">Rain, 7 days</div><div class="v">${mm(c.rain7)}</div></div><div class="card"><div class="k">Deficit now</div><div class="v" style="color:var(--coral)">${mm(c.def)}</div></div><div class="card"><div class="k">Tomorrow</div><div class="v" style="color:var(--teal)">${mm(c.defT)}</div></div></div>
  <div class="card"><div class="k">Soil water deficit</div>${chart(c,220,96)}</div>`,2]);
  sc.push(['5. Irrigation Decision','Clear recommendation with reason, timing and quantity.',
- `<div class="card hero"><div style="font-size:11px;opacity:.85;margin-bottom:4px">${when}</div><div class="big ${c.yes?'yes':'no'}">${dec}</div></div>
- <div class="two"><div class="card"><div class="k">Amount to apply</div><div class="v">${mm(c.qtyMm)}</div><div class="k">refills to field capacity</div></div><div class="card"><div class="k">Water for ${S.area} ha</div><div class="v">${c.m3}<small> m³</small></div><div class="k">${(c.m3*1000).toLocaleString('en-IN')} litres</div></div></div>
+ `<div class="card hero"><div style="font-size:11px;opacity:.85;margin-bottom:4px">As of ${fmt(ASOF,{day:'numeric',month:'short',year:'numeric'})} &middot; ${when}</div><div class="big ${c.yes?'yes':'no'}">${dec}</div></div>
+ <div class="two"><div class="card"><div class="k">Amount to apply</div><div class="v">${mm(c.qtyMm)}</div><div class="k">resets our estimated deficit to zero (assumed; application losses are not modelled)</div></div><div class="card"><div class="k">Water for ${S.area} ha</div><div class="v">${c.m3}<small> m³</small></div><div class="k">${(c.m3*1000).toLocaleString('en-IN')} litres</div></div></div>
  <div class="card"><b style="font-size:12px;color:var(--deep)">Why?</b>
  <div class="why"><i></i><span>Deficit is ${c.def} mm, ${c.defT} mm after tomorrow's predicted use, against a ${c.trig} mm trigger (${S.soil}).</span></div>
  <div class="why"><i></i><span>Tomorrow's ET0 is taken as ${c.pet} mm and you expect ${(+S.rainTom||0)} mm of rain.</span></div>
  <div class="why"><i></i><span>${STAGES.find(s=>c.DAS>=s[1]&&c.DAS<s[2])?.[0]||'Season end'} stage, Kc ${c.kcNow.toFixed(2)}.${c.hasLast?` Last irrigated ${c.sinceLast} days ago.`:''}</span></div></div>`,2]);
  sc.push(['6. Crop Growth Timeline','Crop stages and how water demand changes.',
- `<div class="card" style="padding-bottom:2px"><div class="k" style="margin-bottom:8px">Wheat ${S.variety} · sown ${fmt(c.sow)}</div><div class="tl">${STAGES.map(([n,a,b,t])=>{const cls=c.DAS>=b?'done':(c.DAS>=a?'now':'');return `<div class="st ${cls}"><div class="dot"></div><div><b>${n}</b><div class="k">${fmt(add(c.sow,a))} to ${fmt(add(c.sow,b-1))} · ${b-a} days</div><div class="k">${t} · Kc ${kcAt(a).toFixed(2)} to ${kcAt(b-1).toFixed(2)}</div>${cls=='now'?`<div class="tag gold" style="display:inline-block;margin-top:3px">Now · day ${c.DAS-a+1} of ${b-a}</div>`:''}</div></div>`}).join('')}</div></div>`,1]);
+ `<div class="card" style="padding-bottom:2px"><div class="k" style="margin-bottom:8px">Wheat ${S.variety} · sown ${fmt(c.sow)}</div><div class="k" style="margin-bottom:8px;line-height:1.4">Stage lengths are adapted to a roughly 150-day Haryana season. They are not a FAO-56 table row.</div><div class="tl">${STAGES.map(([n,a,b,t])=>{const cls=c.DAS>=b?'done':(c.DAS>=a?'now':'');return `<div class="st ${cls}"><div class="dot"></div><div><b>${n}</b><div class="k">${fmt(add(c.sow,a))} to ${fmt(add(c.sow,b-1))} · ${b-a} days</div><div class="k">${t} · Kc ${kcAt(a).toFixed(2)} to ${kcAt(b-1).toFixed(2)}</div>${cls=='now'?`<div class="tag gold" style="display:inline-block;margin-top:3px">Now · day ${c.DAS-a+1} of ${b-a}</div>`:''}</div></div>`}).join('')}</div></div>`,1]);
  const evs=c.ev.slice().reverse();
  sc.push(['7. History','Irrigations this season at your trigger, and season totals.',
  `<div class="two"><div class="card"><div class="k">Irrigations called</div><div class="v">${c.ev.length}</div></div><div class="card"><div class="k">Water applied</div><div class="v">${c.ev.length*c.trig*10*S.area/1000>=1?r1(c.ev.length*c.trig*10*S.area):c.ev.length*c.trig*10*S.area}<small> m³</small></div></div><div class="card"><div class="k">Season rain</div><div class="v">${mm(r1(sum(D.rain.slice(c.sowI))))}</div></div><div class="card"><div class="k">Crop use</div><div class="v">${mm(r1(sum(D.et0.slice(c.sowI).map((e,i)=>e*kcAt(i)))))}</div></div></div>
