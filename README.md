@@ -26,3 +26,11 @@ write a merged daily table to `data/karnal_daily.csv`.
 Note: ET0 in this project is **calculated** from weather variables (FAO-56
 Penman-Monteith), not measured in a field. That is a limitation we state in the
 write-up.
+
+## Dashboard
+
+```bash
+python dashboard/build.py   # embeds data/karnal_daily.csv into dashboard/index.html
+```
+
+Open `dashboard/index.html` in a browser. Enter field details and the weather; the irrigation call, deficit and water volume update. Tomorrow ET0 is taken as equal to todays (persistence).
