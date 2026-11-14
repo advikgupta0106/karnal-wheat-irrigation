@@ -28,6 +28,15 @@ asof = datetime.strptime(data["dates"][-1], "%Y-%m-%d").strftime("%d %b %Y").lst
 html = (Path(__file__).parent / "template.html").read_text()
 html = html.replace("__DATA__", json.dumps(data, separators=(",", ":")))
 html = html.replace("__ASOF__", asof)
-assert "__DATA__" not in html and "__ASOF__" not in html, "a placeholder was left unfilled"
+
+# The fitted Step 4 model, exported by the last cell of wheat.ipynb. Embedded rather than
+# fetched, so the page stays a single file that opens from disk with no server.
+model = json.loads((Path(__file__).parent / "model.json").read_text())
+assert len(model["features"]) == len(model["coef"]) == len(model["mean"]) == len(model["scale"]), \
+    "model.json is inconsistent: features, coef, mean and scale must be the same length"
+html = html.replace("__MODEL__", json.dumps(model, separators=(",", ":")))
+for ph in ("__DATA__", "__ASOF__", "__MODEL__"):
+    assert ph not in html, f"placeholder {ph} was left unfilled"
 (Path(__file__).parent / "index.html").write_text(html)
-print(f"Wrote dashboard/index.html ({len(rows)} days, as of {asof})")
+print(f"Wrote dashboard/index.html ({len(rows)} days, as of {asof}; "
+      f"model: {len(model['features'])} features, test MAE {model['test_mae']})")
