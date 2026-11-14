@@ -1,49 +1,88 @@
+<!doctype html>
+<!--
+  Karnal Wheat Irrigation Predictor: a single-file phone-style app.
+
+  This is a TEMPLATE. dashboard/build.py replaces the data placeholder on the "const D=" line below with
+  the daily weather record (data/karnal_daily.csv) and the fitted ET0 model, and writes the result to
+  dashboard/index.html. Edit this file, never index.html, then run:  python dashboard/build.py
+
+  How the page works, top to bottom:
+    1. <style>  : colours, the phone frame, and the small card/row/input components the screens use.
+    2. <body>   : a header, a help note, an empty #app box (the phone is drawn into it), and a footer.
+    3. <script> : the data, the ET0 model, the FAO-56 water balance (calc), one HTML builder per screen
+                  (SCREENS), and a tiny router that redraws the phone when the URL hash (#home, ...) changes.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Karnal Wheat Irrigation Predictor</title>
-<meta name="claude:viewport-fit-sides" content="cover">
 <style>
-/* Layout: eight live phone screens in a wrapping grid; every field edit re-runs the water balance on all screens. */
+/* Layout: one phone running the app; bottom tabs and tappable cards switch screens (hash routing: #home, #field, ...). */
+
+/* ---- Colour palette and font, used everywhere through var(--name) ---- */
 :root{--deep:#123B46;--teal:#176B68;--mint:#55A69A;--pale:#C6E1DB;--white:#F4F7F3;--gold:#E3B65C;--coral:#D56C5C;--ink:#243338;--mut:#5b6e72;--card:#FFFFFF;--line:#dde8e4;--font:'Plus Jakarta Sans',system-ui,sans-serif;color-scheme:light}
 *{box-sizing:border-box}
 body{background:var(--white);color:var(--ink);font-family:var(--font);margin:0;padding-block:28px 48px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));font-size:14px}
-.wrap{max-width:1180px;margin:0 auto}
+a{color:inherit;text-decoration:none}   /* links look like the card they wrap, not blue underlined text */
+
+/* ---- Page around the phone: header, help note, footer ---- */
+.wrap{max-width:760px;margin:0 auto}
 header{display:flex;gap:16px;align-items:center;flex-wrap:wrap;margin-bottom:18px}
 .logo{width:52px;height:52px;border-radius:14px;background:var(--teal);display:grid;place-items:center}
 h1{font-size:26px;margin:0;color:var(--deep);letter-spacing:-.02em;text-wrap:balance}
 .sub{color:var(--mut);margin:2px 0 0}
-.swatches{display:flex;gap:8px;flex-wrap:wrap;margin-left:auto}.sw{width:22px;height:22px;border-radius:50%;border:1px solid var(--line)}
 .note{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 16px;color:var(--mut);font-size:13px;margin-bottom:28px;line-height:1.5}
 .note button{font:600 12px var(--font);border:1px solid var(--teal);color:var(--teal);background:none;border-radius:999px;padding:4px 12px;cursor:pointer;margin-left:6px}
-.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(262px,1fr));gap:36px 24px;justify-items:center}
-.item{width:262px}
-.cap{margin:14px 4px 0}.cap b{display:block;font-size:15px;color:var(--deep)}.cap p{margin:3px 0 0;color:var(--mut);font-size:12.5px;line-height:1.45}
-.phone{width:262px;height:560px;border-radius:34px;background:var(--deep);padding:7px;box-shadow:0 12px 30px rgba(18,59,70,.25)}
+
+/* ---- The phone frame ----
+   The phone is designed at 262x560 px and scaled up with zoom, so every size inside it stays in proportion.
+   .scr is the screen; .scr:before draws the camera notch; .bar is the status-bar gap under the notch. */
+.stage{display:flex;justify-content:center}
+.phone{width:262px;height:560px;border-radius:34px;background:var(--deep);padding:7px;box-shadow:0 12px 30px rgba(18,59,70,.25);zoom:1.3}
+@media (max-width:400px){.phone{zoom:1.2}}   /* slightly smaller on narrow real phones so it fits */
 .scr{height:100%;border-radius:28px;background:var(--white);overflow:hidden;position:relative;display:flex;flex-direction:column;font-size:11px}
 .scr:before{content:"";position:absolute;top:6px;left:50%;width:70px;height:16px;border-radius:9px;background:var(--deep);transform:translateX(-50%);z-index:3}
 .bar{height:34px;flex:none}
-.top{display:flex;align-items:center;gap:8px;padding:2px 14px 8px;font-weight:700;font-size:13px;color:var(--deep)}
+/* Screen title bar (.top) with optional back arrow, the scrolling content (.body, scrollbar hidden), and the bottom tab bar (.nav). */
+.top{display:flex;align-items:center;gap:8px;padding:2px 14px 8px;font-weight:700;font-size:13px;color:var(--deep);flex:none}
+.back{font-size:18px;line-height:1;padding:0 4px 2px 0;color:var(--teal)}
 .body{flex:1;padding:0 12px 8px;overflow-y:auto;display:flex;flex-direction:column;gap:8px;min-height:0;scrollbar-width:none}
 .body::-webkit-scrollbar{display:none}.body>*{flex:none}
 .nav{flex:none;display:flex;justify-content:space-around;background:var(--card);padding:7px 4px 9px;border-top:1px solid var(--line);color:var(--mut);font-size:8.5px}
-.nav div{display:grid;justify-items:center;gap:2px}.nav .on{color:var(--teal);font-weight:700}
-.nav i{width:14px;height:14px;border-radius:5px;background:currentColor;opacity:.5}.nav .on i{opacity:1}
-.card{background:var(--card);border-radius:14px;padding:10px 11px;border:1px solid var(--line)}
+.nav a{display:grid;justify-items:center;gap:2px;padding:0 4px;cursor:pointer}.nav .on{color:var(--teal);font-weight:700}
+.nav i{width:14px;height:14px;border-radius:5px;background:currentColor;opacity:.5}.nav .on i{opacity:1}   /* placeholder tab icons */
+
+/* ---- Building blocks used by the screens ----
+   .card  white rounded panel (an <a class="card"> is tappable and highlights on hover)
+   .go    the small › arrow that marks a tappable card
+   .hero  dark card for the main YES/NO answer; .big is its large number; .yes gold / .no pale
+   .two   two-column grid of cards;  .k small grey label;  .v large value (with a small unit inside)
+   .row   label-left / value-right line in a list;  .tag small coloured chip
+   .menu  the list on the More screen */
+.card{display:block;background:var(--card);border-radius:14px;padding:10px 11px;border:1px solid var(--line)}
+a.card,a.row{cursor:pointer}a.card:hover{border-color:var(--mint)}
+a:focus-visible{outline:2px solid var(--mint);outline-offset:2px;border-radius:10px}
+.go{float:right;color:var(--mint);font-weight:700}
 .hero{background:var(--deep);color:var(--white);border-radius:16px;padding:12px;border:0}
 .hero small{opacity:.8;font-size:9.5px;text-transform:uppercase;letter-spacing:.06em}
 .big{font-size:34px;font-weight:800;letter-spacing:-.02em;line-height:1}
 .yes{color:var(--gold)}.no{color:var(--pale)}
 .pill{display:inline-block;border-radius:999px;padding:5px 11px;font-weight:700;font-size:10px;background:rgba(255,255,255,.16);color:var(--white)}
-.btn{display:block;background:var(--teal);color:#fff;border-radius:11px;text-align:center;padding:8px;font-weight:700;font-size:10.5px}
 .two{display:grid;grid-template-columns:1fr 1fr;gap:8px}
 .k{color:var(--mut);font-size:9.5px}.v{font-size:19px;font-weight:800;color:var(--ink);line-height:1.15;font-variant-numeric:tabular-nums}.v small{font-size:10px;font-weight:600;color:var(--mut)}
 .row{display:flex;justify-content:space-between;align-items:center;gap:6px;padding:6px 0;border-bottom:1px solid var(--line)}.row:last-child{border:0}
 .row b{font-weight:600;text-align:right}.tag{font-size:8.5px;font-weight:700;border-radius:6px;padding:2px 6px;background:var(--pale);color:var(--deep)}
 .tag.gold{background:#f6e6c3;color:#6b4a07}
+.menu .row{padding:9px 0}.menu .row b{display:block;text-align:left;font-size:12px;color:var(--deep)}.menu .chev{color:var(--mint);font-size:16px}
+/* ---- Form fields: .f is one label + input pair, .fl stacks them ---- */
 input,select{font:600 11px var(--font);color:var(--ink);background:var(--white);border:1px solid var(--line);border-radius:8px;padding:5px 6px;width:100%;min-width:0}
 input:focus-visible,select:focus-visible{outline:2px solid var(--mint);outline-offset:1px}
 .f{display:grid;gap:3px}.f label{font-size:9px;color:var(--mut)}
 .fl{display:grid;gap:8px}
-.reset{font:700 10px var(--font);color:var(--teal);background:none;border:1px solid var(--pale);border-radius:9px;padding:6px;cursor:pointer;width:100%}
-svg text{font-family:var(--font);fill:var(--mut);font-size:8px}
+svg text{font-family:var(--font);fill:var(--mut);font-size:8px}   /* axis labels in the inline SVG charts */
+/* ---- Crop timeline: one .st row per stage; .dot is filled for done stages and gold for the current one;
+   :after draws the vertical line joining the dots. .why is a bullet line on the Decision screen. ---- */
 .tl{display:grid}.st{display:grid;grid-template-columns:18px 1fr;gap:8px;padding-bottom:9px;position:relative}
 .dot{width:14px;height:14px;border-radius:50%;border:2px solid var(--pale);background:var(--card);margin-top:2px;z-index:1}
 .st.done .dot{background:var(--teal);border-color:var(--teal)}.st.now .dot{border-color:var(--gold);background:var(--gold)}
@@ -51,118 +90,284 @@ svg text{font-family:var(--font);fill:var(--mut);font-size:8px}
 .why{display:grid;grid-template-columns:14px 1fr;gap:7px;padding:5px 0;line-height:1.35}.why i{width:12px;height:12px;border-radius:50%;background:var(--mint);margin-top:1px}
 .foot{margin-top:28px;color:var(--mut);font-size:12px;line-height:1.6}
 </style>
+</head>
+<body>
 <div class="wrap">
 <header>
  <div class="logo"><svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#F4F7F3" stroke-width="1.8" stroke-linecap="round"><path d="M12 22V9M12 9c0-3 2-5 5-5 0 3-2 5-5 5zM12 9C12 6 10 4 7 4c0 3 2 5 5 5zM12 15c0-3 2-5 5-5 0 3-2 5-5 5zM12 15c0-3-2-5-5-5 0 3 2 5 5 5z"/></svg></div>
  <div><h1>Karnal Wheat Irrigation Predictor</h1><p class="sub">Data-driven. Efficient. Future-ready.</p></div>
- <div class="swatches" aria-hidden="true"><i class="sw" style="background:#123B46"></i><i class="sw" style="background:#176B68"></i><i class="sw" style="background:#55A69A"></i><i class="sw" style="background:#C6E1DB"></i><i class="sw" style="background:#F4F7F3"></i><i class="sw" style="background:#E3B65C"></i><i class="sw" style="background:#D56C5C"></i><i class="sw" style="background:#243338"></i></div>
 </header>
-<div class="note">Type into <b>My Field</b> (area, soil, variety, sowing date, last irrigation) or <b>Weather</b> (today's ET0, expected rain) and every screen updates. Tomorrow's crop water loss is assumed equal to today's. <button id="reset">Reset all inputs</button></div>
-<div class="grid" id="grid"></div>
-<p class="foot">Sources: Open-Meteo (ERA5) and NASA POWER daily data to 31 Mar 2026. ET0 is calculated (FAO-56 Penman-Monteith), not measured in a field. Soil sets the trigger deficit (sandy loam 40, loam 60, clay loam 80 mm, the notebook's scenario range). Variety is a label only until stage dates per variety are available.</p>
+<div class="note">Use the tabs at the bottom of the phone, or tap a card, to move between screens. Enter your field on <b>My Field</b> and today's weather and expected rain on <b>Weather</b>. Tomorrow's crop water loss is predicted by the notebook's AI model (linear regression on today's weather). <button id="reset">Reset all inputs</button></div>
+<!-- The phone and the current screen are drawn in here by render() in the script below. -->
+<div class="stage" id="app"></div>
+<p class="foot">Sources: Open-Meteo (ERA5) and NASA POWER daily data to <span id="asof"></span>. ET0 is calculated (FAO-56 Penman-Monteith), not measured in a field. Tomorrow's ET0 comes from the notebook's linear regression (11 features), refitted by build.py, which checks the test error matches the notebook. Soil sets the trigger deficit (sandy loam 40, loam 60, clay loam 80 mm, the notebook's scenario range). Variety is a label only until stage dates per variety are available.</p>
 </div>
 <script>
+/* ==== 1. DATA ================================================================================
+   D is filled in by build.py. It holds one array per weather variable, all the same length and
+   aligned by position: D.dates[i] is the date of D.et0[i], D.rain[i], D.tmax[i] and so on.
+     et0  reference evapotranspiration, mm/day (the crop's "water loss" before Kc)
+     rain mm/day;  tmax, tmin °C;  rh mean humidity %;  wind max km/h;  rad solar MJ/m²
+   D.model holds the ET0 model's weights and its test scores (see section 2). */
 const D=__DATA__;
+// LAST is the index of the newest day in the record. The app treats that day as "today" (ASOF).
 const N=D.dates.length, LAST=N-1, ASOF=D.dates[LAST];
+// Soil type sets the irrigation trigger: irrigate when the soil water deficit reaches this many mm.
+// These are the notebook's three scenario values (Cell 48), not values measured for a real field.
 const SOILS={'Sandy loam':40,'Loam':60,'Clay loam':80}, VARIETIES=['HD 2967','HD 3086','PBW 343','DBW 187'];
-const DEF={area:2.5,soil:'Loam',variety:'HD 2967',sow:'2025-11-15',last:'2026-03-25',rainTom:0,wx:{et0:D.et0[LAST],tmax:D.tmax[LAST],tmin:D.tmin[LAST],rh:D.rh[LAST],wind:D.wind[LAST],rad:D.rad[LAST],rain:D.rain[LAST]}};
-let S=JSON.parse(JSON.stringify(DEF));
-/* Tomorrow's ET0 = today's ET0 (the notebook's persistence rule). */
-// #advik this is where the model is
-const predict=(wx)=>Math.max(0,+wx.et0||0);
-/* ---- crop curve and water balance (FAO-56 Kc, notebook stage lengths) ---- */
-const SEG=[25,55,45,25],KCI=.7,KCM=1.15,KCE=.4;
+// The weather variables the user can edit on the Weather screen, and a helper that reads them for day i.
+const WX=['et0','rain','tmax','tmin','rh','wind','rad'];
+const dayWx=i=>Object.fromEntries(WX.map(k=>[k,D[k][i]]));
+// DEF = default inputs (what "Reset all inputs" goes back to). S = the user's current inputs.
+// Today's weather defaults to the record's last day. rainTom is the user's own rain forecast for tomorrow.
+const DEF={area:2.5,soil:'Loam',variety:'HD 2967',sow:'2025-11-15',last:'2026-03-25',rainTom:0,wx:dayWx(LAST)};
+let S=JSON.parse(JSON.stringify(DEF));   // deep copy, so editing S never changes DEF
+
+/* ==== 2. ET0 MODEL ========================================================================== */
+/* ---- ET0 model: the notebook's best model, "Linear regression (11 features, with lags)" (wheat.ipynb Cells 47-52).
+   build.py refits it on seasons 2018-19 to 2023-24, checks the test MAE matches the notebook, and embeds the weights as D.model.
+   Prediction for tomorrow = b + sum(w_k * feature_k), every feature measured today. */
+const M=D.model;   // {w: weight per feature, b: intercept, plus test scores shown in the app}
+// Day of season = days since 1 November of the season's starting year (1 Nov = 0, 31 Mar = 150).
+// Jan-Mar belong to the season that started the previous November. getMonth() is 0-based, so 10 = November.
+const dosOf=d=>{const x=new Date(d+'T00:00:00'),y=x.getMonth()>=10?x.getFullYear():x.getFullYear()-1;return dayDiff(`${y}-11-01`,d)};
+// The model's 11 inputs for day i: today's weather (wx) plus the lag features, which come from the
+// record (yesterday = i-1, day before = i-2). Built exactly as in the notebook's Cell 22.
+const feats=(wx,i)=>({et0:+wx.et0,tmax:+wx.tmax,tmin:+wx.tmin,wind:+wx.wind,rad:+wx.rad,rh:+wx.rh,rain:+wx.rain,dos:dosOf(D.dates[i]),
+ et0_yesterday:D.et0[i-1],et0_3day_mean:(+wx.et0+D.et0[i-1]+D.et0[i-2])/3,et0_change:+wx.et0-D.et0[i-1]});
+// Linear regression: start at the intercept b and add weight x value for every feature.
+const model=(wx,i)=>{const f=feats(wx,i);return Math.max(0,Object.keys(M.w).reduce((s,k)=>s+M.w[k]*f[k],M.b))}; // floored at 0, as in the notebook's balance
+const predict=wx=>model(wx,LAST);          // tomorrow, from today's (editable) weather
+const predFor=i=>model(dayWx(i-1),i-1);    // what the model said for day i, the evening before
+
+/* ==== 3. CROP CURVE (FAO-56, notebook Cells 48-49) ==========================================
+   Crop water use = Kc x ET0. Kc depends on how far the crop has grown, counted in days after sowing (DAS):
+     days 0-24    Initial      flat at KCI (0.7)
+     days 25-79   Development  rises in a straight line to KCM (1.15)
+     days 80-124  Mid-season   flat at KCM, the peak water use
+     days 125-149 Late season  falls in a straight line to KCE (0.4)
+   Kc values are from FAO-56 Table 12; the 25/55/45/25 stage lengths are the notebook's own adaptation. */
+const KCI=.7,KCM=1.15,KCE=.4;
+// Kc for a given day after sowing. Days past 149 are clamped to the season's last day.
 const kcAt=(d)=>{d=Math.max(0,Math.min(149,d));if(d<25)return KCI;if(d<80)return KCI+(KCM-KCI)*(d-24)/55;if(d<125)return KCM;return KCM+(KCE-KCM)*(d-124)/25};
+// [name, first day, day after the last day, description] for each stage. Used by the timeline and the stage labels.
 const STAGES=[['Initial',0,25,'Emergence and early tillering'],['Development',25,80,'Tillering to jointing and booting'],['Mid-season',80,125,'Heading, flowering, early grain fill'],['Late season',125,150,'Grain fill to maturity']];
+
+/* ---- Small helpers. Dates are 'YYYY-MM-DD' strings; 'T00:00:00' makes them local midnight. ---- */
+// Whole days from date a to date b (864e5 = milliseconds in a day; rounding absorbs daylight-saving shifts).
 const dayDiff=(a,b)=>Math.round((new Date(b+'T00:00:00')-new Date(a+'T00:00:00'))/864e5);
+// Format a date for display, e.g. '31 Mar'. Pass other options for weekday or year.
 const fmt=(d,o={day:'numeric',month:'short'})=>new Date(d+'T00:00:00').toLocaleDateString('en-GB',o);
+// Date n days after d. sum adds up an array; r1 rounds to one decimal place.
 const add=(d,n)=>{const x=new Date(d+'T00:00:00');x.setDate(x.getDate()+n);return x.toISOString().slice(0,10)};
 const sum=a=>a.reduce((s,x)=>s+x,0),r1=x=>Math.round(x*10)/10;
+/* ==== 4. WATER BALANCE AND DECISION =========================================================
+   calc() turns the inputs in S into every number the screens show. It runs on every edit.
+
+   The soil water DEFICIT is how many mm of water the root zone has lost since it was last full.
+   Each day:  deficit = max(0, deficit + crop use - rain),  where crop use = Kc x ET0.
+   It cannot go below 0 (extra rain drains away), and it resets to 0 when the field is irrigated.
+   When the deficit reaches the soil's trigger, it is time to irrigate. Same rules as notebook Cell 50. */
 function calc(){
- const trig=SOILS[S.soil], idx=d=>D.dates.indexOf(d);
+ const trig=SOILS[S.soil], idx=d=>D.dates.indexOf(d);   // trigger in mm; idx = position of a date in the record
+
+ // Sowing date -> index in the record. If the date is not in the record, fall back to 137 days before
+ // today (15 Nov for the 2025-26 season). DAS = days after sowing, as of today.
  let sowI=idx(S.sow);if(sowI<0)sowI=Math.max(0,LAST-136);
  const sow=D.dates[sowI], DAS=LAST-sowI;
+
+ // Last irrigation is only used if it falls between sowing and today. The balance starts the day after it
+ // (the soil was full that day), or at sowing if there was none. kc(i) = crop coefficient on record day i.
  const li=S.last?idx(S.last):-1, hasLast=li>=sowI&&li<=LAST;
  const start=hasLast?li+1:sowI, kc=i=>kcAt(i-sowI);
+
+ // ET0 (E) and rain (R) for record day i. Today's values come from the Weather screen (defaults = the
+ // record's last day), so editing them changes today's deficit too. Earlier days are the record. ET0 floored at 0.
+ const E=i=>i==LAST?Math.max(0,+S.wx.et0||0):Math.max(0,D.et0[i]), R=i=>i==LAST?(+S.wx.rain||0):D.rain[i];
+
+ // Today's deficit: run the balance from the start day to today. ser keeps each day's value for the Water chart.
  let def=0;const ser=[];
- for(let i=start;i<=LAST;i++){def=Math.max(0,def+kc(i)*Math.max(0,D.et0[i])-D.rain[i]);ser.push(r1(def))}
- // auto-called irrigations for History
- let d2=0;const ev=[];for(let i=sowI;i<=LAST;i++){d2=Math.max(0,d2+kc(i)*Math.max(0,D.et0[i])-D.rain[i]);if(d2>=trig){ev.push(D.dates[i]);d2=0}}
+ for(let i=start;i<=LAST;i++){def=Math.max(0,def+kc(i)*E(i)-R(i));ser.push(r1(def))}
+
+ // History: replay the whole season from sowing as if the farmer always irrigated exactly at the trigger.
+ // Every day the deficit reaches the trigger is recorded as an irrigation and the deficit resets to 0.
+ // (This ignores the user's real last-irrigation date; it shows what the rule would have done.)
+ let d2=0;const ev=[];for(let i=sowI;i<=LAST;i++){d2=Math.max(0,d2+kc(i)*E(i)-R(i));if(d2>=trig){ev.push(D.dates[i]);d2=0}}
+
+ // Tomorrow: pet = the model's ET0 forecast, kcT = tomorrow's Kc, etcT = tomorrow's crop use,
+ // rainT = the rain the user expects. defT = the deficit at the end of tomorrow.
  const pet=predict(S.wx), kcT=kcAt(DAS+1), etcT=kcT*pet, rainT=+S.rainTom||0;
- const defT=Math.max(0,def+etcT-rainT), net=Math.max(0.1,etcT-rainT);
+ const defT=Math.max(0,def+etcT-rainT);
+
+ // days = how many more days at tomorrow's crop use until the trigger is reached (at least 0.5 mm/day
+ // assumed, so a near-zero forecast does not give an absurd answer). Say YES if the trigger is reached
+ // tomorrow, or will be within a day after that.
  const days=defT>=trig?0:Math.ceil((trig-defT)/Math.max(0.5,etcT)), yes=defT>=trig||days<=1;
- const rem=Math.max(0,trig-def);
+ const rem=Math.max(0,trig-def);   // mm left before today's deficit reaches the trigger
+
+ // Amount to apply = tomorrow's deficit (refill to full). 1 mm over 1 hectare = 10 m³ of water.
  const qtyMm=Math.round(defT*10)/10, m3=Math.round(qtyMm*10*S.area);
- const w7=(f)=>sum(D[f].slice(-7));
+ const w7=(f)=>sum(D[f].slice(-7));   // total of a variable over the record's last 7 days
+
+ // Everything the screens need. Values shown to the user are rounded with r1.
  return {trig,sowI,sow,DAS,hasLast,ser,ev,def:r1(def),pet:r1(pet),kcNow:kcAt(DAS),kcT,etcT:r1(etcT),defT:r1(defT),days,yes,rem,qtyMm,m3,
-  etcNow:r1(kcAt(DAS)*D.et0[LAST]),rain7:r1(w7('rain')),et07:r1(w7('et0')),pct:Math.max(0,Math.min(100,Math.round(100*(1-def/trig)))),
-  sinceLast:hasLast?dayDiff(S.last,ASOF):null}
+  // crop use today; 7-day rain with today's record value swapped for the user's; % of the trigger still unused
+  etcNow:r1(kcAt(DAS)*E(LAST)),rain7:r1(w7('rain')-D.rain[LAST]+R(LAST)),pct:Math.max(0,Math.min(100,Math.round(100*(1-def/trig)))),
+  // days since the last irrigation; today's ET0; rainy = user expects more than 1 mm tomorrow (notebook's rainy-day threshold)
+  sinceLast:hasLast?dayDiff(S.last,ASOF):null, today:r1(E(LAST)), rainy:rainT>1,
+  dec:yes?'YES':'NO',
+  when:yes?(days==0?'Irrigate tomorrow':'Irrigate within 1 day'):`Next irrigation in about ${days} days`}
 }
-/* ---- pieces ---- */
-const NAV=on=>`<div class="nav">${['Home','My Field','Water','Weather','More'].map((n,i)=>`<div class="${i==on?'on':''}"><i></i>${n}</div>`).join('')}</div>`;
-const phone=(t,inner,nav,back)=>`<div class="phone"><div class="scr"><div class="bar"></div><div class="top">${back?'<span>‹</span>':''}${t}</div><div class="body">${inner}</div>${NAV(nav)}</div></div>`;
-const mm=x=>`${x}<small> mm</small>`;
+/* ==== 5. SHARED PIECES: tab bar, charts, form fields ========================================
+   Everything below returns an HTML string. Screens are built by joining these strings, then render()
+   puts the result into the page in one go. */
+
+// Bottom tab bar. Each tab is a link to #key; `on` is the index of the tab to highlight.
+const TABS=[['home','Home'],['field','My Field'],['water','Water'],['weather','Weather'],['more','More']];
+const NAV=on=>`<nav class="nav">${TABS.map(([k,n],i)=>`<a href="#${k}" class="${i==on?'on':''}"${i==on?' aria-current="page"':''}><i></i>${n}</a>`).join('')}</nav>`;
+const mm=x=>`${x}<small> mm</small>`;    // a value with a small "mm" unit after it
+const go='<span class="go">›</span>';     // arrow that marks a tappable card
+
+/* Water screen chart (inline SVG, w x h units): the deficit over the last 30 days since the last irrigation
+   (teal line and shaded area), the trigger (dashed coral line), and tomorrow's projected deficit (gold). */
 function chart(c,w,h){
- const s=c.ser.slice(-30), all=[...s,c.defT], mx=Math.max(c.trig,...all)*1.12, n=all.length;
+ const s=c.ser.slice(-30), all=[...s,c.defT], mx=Math.max(c.trig,...all)*1.12, n=all.length;  // mx = top of the y axis, 12% headroom
+ // X: point index -> x position (8-unit margins). Y: mm -> y position (SVG y grows downward, 14 units kept for labels).
  const X=i=>8+i*(w-16)/Math.max(1,n-1), Y=v=>h-14-(v/mx)*(h-26);
  if(s.length<1)return '<div class="k">No days since last irrigation yet.</div>';
- const pts=s.map((v,i)=>`${X(i).toFixed(1)},${Y(v).toFixed(1)}`).join(' ');
- const li=s.length-1;
+ const pts=s.map((v,i)=>`${X(i).toFixed(1)},${Y(v).toFixed(1)}`).join(' ');   // "x,y x,y ..." for the polyline
+ const li=s.length-1;   // index of today's point
+ // The area path traces the line and closes along the bottom edge. Then: trigger line, deficit line, dashed link to tomorrow.
  return `<svg viewBox="0 0 ${w} ${h}" width="100%"><path d="M${X(0)},${h-14} L${pts.replaceAll(' ',' L')} L${X(li)},${h-14}Z" fill="var(--mint)" opacity=".22"/><line x1="8" x2="${w-8}" y1="${Y(c.trig)}" y2="${Y(c.trig)}" stroke="var(--coral)" stroke-dasharray="3 3"/><text x="${w-8}" y="${Y(c.trig)-3}" text-anchor="end">${c.trig} mm trigger</text><polyline points="${pts}" fill="none" stroke="var(--teal)" stroke-width="1.8"/><line x1="${X(li)}" y1="${Y(s[li])}" x2="${X(n-1)}" y2="${Y(c.defT)}" stroke="var(--gold)" stroke-width="1.8" stroke-dasharray="3 2"/><circle cx="${X(li)}" cy="${Y(s[li])}" r="3" fill="var(--teal)"/><circle cx="${X(n-1)}" cy="${Y(c.defT)}" r="3.4" fill="var(--gold)"/><text x="8" y="${h-3}">${fmt(D.dates[LAST-s.length+1])}</text><text x="${w-8}" y="${h-3}" text-anchor="end">Tomorrow</text></svg>`;
 }
+/* Model check: actual ET0 for the last 14 days against what the model predicted the evening before, plus tomorrow. */
+function predChart(c,w,h){
+ // ix = the last 14 record days; act = actual ET0 (today's is the user's value); pr = model predictions;
+ // n = 15 points, the 15th being tomorrow's forecast.
+ const ix=[...Array(14)].map((_,k)=>LAST-13+k), act=ix.map(i=>i==LAST?c.today:D.et0[i]), pr=ix.map(predFor), n=ix.length+1;
+ const mx=Math.max(...act,...pr,c.pet)*1.15, X=i=>8+i*(w-16)/(n-1), Y=v=>h-14-(v/mx)*(h-24);
+ const line=a=>a.map((v,i)=>`${X(i).toFixed(1)},${Y(v).toFixed(1)}`).join(' ');
+ const err=(sum(act.map((a,i)=>Math.abs(a-pr[i])))/act.length).toFixed(2);   // mean absolute error over the 14 days
+ return `<svg viewBox="0 0 ${w} ${h}" width="100%"><polyline points="${line(act)}" fill="none" stroke="var(--teal)" stroke-width="1.8"/><polyline points="${line([...pr,c.pet])}" fill="none" stroke="var(--gold)" stroke-width="1.6" stroke-dasharray="3 2"/><circle cx="${X(n-1)}" cy="${Y(c.pet)}" r="3.4" fill="var(--gold)"/><text x="8" y="9">— actual</text><text x="52" y="9" style="fill:#9a7314">- - model</text><text x="${w-8}" y="9" text-anchor="end">avg miss ${err} mm</text><text x="8" y="${h-3}">${fmt(D.dates[ix[0]])}</text><text x="${w-8}" y="${h-3}" text-anchor="end">Tomorrow</text></svg>`;
+}
+/* Ring gauge for p%. The coloured arc is a circle stroke drawn as one dash of length C*p/100
+   (C = circumference) followed by a gap, rotated -90° so it starts at 12 o'clock. */
 function gauge(p){const R=44,C=2*Math.PI*R;return `<svg viewBox="0 0 110 110" width="108"><circle cx="55" cy="55" r="${R}" fill="none" stroke="var(--pale)" stroke-width="9"/><circle cx="55" cy="55" r="${R}" fill="none" stroke="var(--teal)" stroke-width="9" stroke-linecap="round" stroke-dasharray="${C*p/100} ${C}" transform="rotate(-90 55 55)"/><text x="55" y="58" text-anchor="middle" style="font-size:24px;font-weight:800;fill:#243338">${p}%</text><text x="55" y="72" text-anchor="middle" style="font-size:8px">soil water left</text></svg>`}
+// Labelled input / dropdown. data-k names the field in S that onEdit() should update (section 7).
 const inp=(id,label,val,type='number',extra='')=>`<div class="f"><label for="${id}">${label}</label><input id="${id}" data-k="${id}" type="${type}" value="${val}" ${extra}></div>`;
 const sel=(id,label,val,opts)=>`<div class="f"><label for="${id}">${label}</label><select id="${id}" data-k="${id}">${opts.map(o=>`<option ${o==val?'selected':''}>${o}</option>`).join('')}</select></div>`;
-function render(){
- const c=calc();
- const dec=c.yes?'YES':'NO';
- const when=c.yes?(c.days==0?'Irrigate tomorrow':'Irrigate within 1 day'):`Next irrigation in about ${c.days} days`;
- const days7=[...Array(7)].map((_,i)=>LAST-6+i);
- const sc=[];
- sc.push(['1. Home','Quick overview of the recommendation, key stats and weather.',
- `<div class="top" style="padding:0 2px">Karnal Wheat Irrigation</div>
- <div class="card hero"><small>Irrigation recommendation</small><div style="display:flex;align-items:center;justify-content:space-between;margin:6px 0"><span class="big ${c.yes?'yes':'no'}">${dec}</span><span class="pill">${c.trig} mm trigger</span></div><div style="font-size:12px;font-weight:600">${when}</div></div>
- <div class="two"><div class="card"><div class="k">Soil water deficit</div><div class="v">${mm(c.def)}</div><div class="k">${c.rem.toFixed(1)} mm to trigger</div></div><div class="card"><div class="k">Next irrigation</div><div class="v" style="font-size:17px">${c.yes?'Now':'in '+c.days+' d'}</div><div class="k">${c.yes?c.qtyMm+' mm':'${S.area} ha'.replace('${S.area}',S.area)}</div></div></div>
- <div class="card"><div class="k" style="margin-bottom:4px">Tomorrow's crop water loss</div><div style="display:flex;gap:10px;align-items:center"><div class="v" style="font-size:24px">${c.pet}<small> mm</small></div><div class="k" style="line-height:1.6">Crop water loss (ET0)<br>Same as today<br>Crop use ${c.etcT} mm</div></div></div>`,0,false]);
- sc.push(['2. My Field','Type your field details. Every screen recalculates.',
- `<div class="card fl">${inp('area','Field area (hectares)',S.area,'number','min="0.1" step="0.1"')}${sel('soil','Soil type (sets the trigger)',S.soil,Object.keys(SOILS))}${sel('variety','Wheat variety',S.variety,VARIETIES)}${inp('sow','Sowing date',S.sow,'date',`min="2025-11-01" max="2025-12-15"`)}${inp('last','Last irrigation (blank if none)',S.last,'date',`min="${S.sow}" max="${ASOF}"`)}</div>
- <div class="card"><div class="row"><span class="k">Trigger deficit</span><b>${c.trig} mm</b></div><div class="row"><span class="k">Kc today</span><b>${c.kcNow.toFixed(2)}</b></div><div class="row"><span class="k">Days after sowing</span><b>${c.DAS}</b></div></div>`,1]);
- sc.push(['3. Weather','Enter today\'s ET0 and expected rain.',
- `<div class="card"><div class="k">Last 7 days, Karnal</div><div style="display:grid;grid-template-columns:repeat(7,1fr);gap:2px;text-align:center;margin-top:6px">${days7.map(i=>`<div><div class="k">${fmt(D.dates[i],{weekday:'short'}).slice(0,3)}</div><div style="font-weight:800;margin-top:2px">${Math.round(D.tmax[i])}°</div><div class="k">${Math.round(D.tmin[i])}°</div><div style="height:${Math.min(30,Math.max(2,D.rain[i]*4))}px;background:var(--mint);border-radius:3px;margin:5px 4px 0"></div><div class="k">${D.rain[i]}</div></div>`).join('')}</div></div>
- <div class="card"><div class="k" style="margin-bottom:6px">Today's weather (editable)</div><div class="two">${inp('w_et0','ET0 today mm',S.wx.et0,'number','step="0.1"')}${inp('rainTom','Rain tomorrow mm',S.rainTom,'number','step="0.1"')}</div></div>
- <div class="card hero" style="padding:10px"><small>Tomorrow's ET0 (same as today)</small><div class="big" style="font-size:24px;margin-top:4px">${c.pet} <span style="font-size:12px;font-weight:600">mm</span></div></div>`,3]);
- sc.push(['4. Water Balance','Water used, received and still in the soil.',
- `<div class="card" style="display:grid;justify-items:center;padding:8px">${gauge(c.pct)}</div>
+
+/* ==== 6. SCREENS ============================================================================
+   Each screen in SCREENS has:
+     title   text in the top bar
+     nav     which bottom tab to highlight (0 Home, 1 My Field, 2 Water, 3 Weather, 4 More)
+     parent  (optional) the screen the back arrow goes to; screens without one are top-level tabs
+     html(c) builds the screen's content from calc()'s results c
+     out(c)  (input screens only) builds just the results part, inside <div id="out">. While the user
+             types, only this part is redrawn, so the input box they are typing in is never replaced.
+   Tappable cards are <a href="#screen"> links; following one changes the URL hash, which triggers route(). */
+
+// Results under the My Field inputs: trigger, Kc and days after sowing, plus the current answer.
+const fieldOut=c=>`<div class="card"><div class="row"><span class="k">Trigger deficit</span><b>${c.trig} mm</b></div><div class="row"><span class="k">Kc today</span><b>${c.kcNow.toFixed(2)}</b></div><div class="row"><span class="k">Days after sowing</span><b>${c.DAS}</b></div></div>
+ <a class="card" href="#home"><b style="color:var(--deep)">Irrigate? ${c.dec}</b>${go}<div class="k">${c.when}</div></a>`;
+// Warning card shown when the user expects rain tomorrow, because the notebook found the model is weakest
+// on rainy days (Cell 31). The figures come from build.py's test-set scores, not typed in.
+const rainWarn=c=>c.rainy?`<div class="card" style="border-color:var(--gold);background:#fbf3e2"><b style="color:#6b4a07">Rain expected tomorrow</b><div class="k" style="color:#6b4a07">On rainy days the model over-predicts ET0 by about ${M.bias_rainy} mm and is no better than "tomorrow = today" (test MAE ${M.mae_rainy} vs ${M.mae_dry} mm on dry days). Treat the call with caution.</div></div>`:'';
+// Results under the Weather inputs: the model's forecast (with "tomorrow = today" for comparison),
+// the rain warning, and the predicted-vs-actual chart.
+const weatherOut=c=>`<a class="card hero" href="#decision" style="padding:10px"><small>Tomorrow's ET0 · AI model prediction</small>${go}<div class="big" style="font-size:24px;margin-top:4px">${c.pet} <span style="font-size:12px;font-weight:600">mm</span></div><div style="font-size:10px;margin-top:3px;opacity:.75">"Tomorrow = today" would say ${c.today} mm</div><div style="font-size:10.5px;margin-top:4px;opacity:.85">Irrigate? <b class="${c.yes?'yes':'no'}">${c.dec}</b> · ${c.when}</div></a>
+ ${rainWarn(c)}
+ <div class="card"><div class="k">Model check: predicted vs actual ET0</div>${predChart(c,220,90)}</div>`;
+// Entries on the More screen: [screen key, title, subtitle].
+const MORE=[['decision','Irrigation decision','Why, when and how much water'],['timeline','Crop growth timeline','Stages and changing water demand'],['history','History','Irrigations this season and totals'],['settings','Settings','Inputs, units and data sources']];
+const SCREENS={
+ // Home: the YES/NO answer, deficit, next irrigation, tomorrow's ET0 and crop stage. Each card opens its detail screen.
+ home:{nav:0,title:'Karnal Wheat Irrigation',html:c=>`
+ <a class="card hero" href="#decision"><small>Irrigation recommendation</small><div style="display:flex;align-items:center;justify-content:space-between;margin:6px 0"><span class="big ${c.yes?'yes':'no'}">${c.dec}</span><span class="pill">${c.trig} mm trigger</span></div><div style="font-size:12px;font-weight:600">${c.when}</div><div style="font-size:10px;opacity:.75;margin-top:6px">See why and how much ›</div></a>
+ <div class="two"><a class="card" href="#water"><div class="k">Soil water deficit</div><div class="v">${mm(c.def)}</div><div class="k">${c.rem.toFixed(1)} mm to trigger</div></a><a class="card" href="#decision"><div class="k">Next irrigation</div><div class="v" style="font-size:17px">${c.yes?'Now':'in '+c.days+' d'}</div><div class="k">${c.yes?c.qtyMm+' mm':S.area+' ha'}</div></a></div>
+ <a class="card" href="#weather"><div class="k" style="margin-bottom:4px">Tomorrow's crop water loss ${go}</div><div style="display:flex;gap:10px;align-items:center"><div class="v" style="font-size:24px">${c.pet}<small> mm</small></div><div class="k" style="line-height:1.6">ET0 predicted by AI model<br>Today ${c.today} mm<br>Crop use ${c.etcT} mm</div></div></a>
+ ${rainWarn(c)}
+ <a class="card" href="#timeline"><div class="k">Crop stage ${go}</div><b style="font-size:12px;color:var(--deep)">${STAGES.find(s=>c.DAS>=s[1]&&c.DAS<s[2])?.[0]||'Season end'}</b> <span class="k">· day ${c.DAS} after sowing</span></a>`},
+ // My Field: area, soil, variety, sowing and last-irrigation dates. Sowing is limited to the usual Nov-mid Dec window.
+ field:{nav:1,title:'My Field',out:fieldOut,html:c=>`
+ <div class="card fl">${inp('area','Field area (hectares)',S.area,'number','min="0.1" step="0.1"')}${sel('soil','Soil type (sets the trigger)',S.soil,Object.keys(SOILS))}${sel('variety','Wheat variety',S.variety,VARIETIES)}${inp('sow','Sowing date',S.sow,'date',`min="2025-11-01" max="2025-12-15"`)}${inp('last','Last irrigation (blank if none)',S.last,'date',`min="${S.sow}" max="${ASOF}"`)}</div>
+ <div id="out" style="display:contents">${fieldOut(c)}</div>`},
+ // Weather: the last 7 days (max/min temperature, rain bars scaled 4 px per mm, capped at 30 px),
+ // then today's model inputs (input ids start with w_ so onEdit stores them in S.wx) and tomorrow's rain.
+ weather:{nav:3,title:'Weather',out:weatherOut,html:c=>{const days7=[...Array(7)].map((_,i)=>LAST-6+i);return `
+ <div class="card"><div class="k">Last 7 days, Karnal</div><div style="display:grid;grid-template-columns:repeat(7,1fr);gap:2px;text-align:center;margin-top:6px">${days7.map(i=>`<div><div class="k">${fmt(D.dates[i],{weekday:'short'}).slice(0,3)}</div><div style="font-weight:800;margin-top:2px">${Math.round(D.tmax[i])}°</div><div class="k">${Math.round(D.tmin[i])}°</div><div style="height:${Math.min(30,Math.max(2,D.rain[i]*4))}px;background:var(--mint);border-radius:3px;margin:5px 4px 0"></div><div class="k">${D.rain[i]}</div></div>`).join('')}</div></div>
+ <div class="card"><div class="k" style="margin-bottom:6px">Today, ${fmt(ASOF)} · model inputs (editable)</div><div class="two">${inp('w_et0','ET0 mm',S.wx.et0,'number','step="0.1" min="0"')}${inp('w_rain','Rain today mm',S.wx.rain,'number','step="0.1" min="0"')}${inp('w_tmax','Max temp °C',S.wx.tmax,'number','step="0.1"')}${inp('w_tmin','Min temp °C',S.wx.tmin,'number','step="0.1"')}${inp('w_rh','Humidity %',S.wx.rh,'number','step="1" min="0" max="100"')}${inp('w_wind','Max wind km/h',S.wx.wind,'number','step="0.1" min="0"')}${inp('w_rad','Solar MJ/m²',S.wx.rad,'number','step="0.1" min="0"')}${inp('rainTom','Rain tomorrow mm',S.rainTom,'number','step="0.1" min="0"')}</div><div class="k" style="margin-top:6px">Yesterday's and the 3-day ET0 come from the record. No rain forecast exists past ${fmt(ASOF)} in the data, so enter tomorrow's.</div></div>
+ <div id="out" style="display:contents">${weatherOut(c)}</div>`}},
+ // Water Balance: gauge of how much of the trigger is still unused, today's numbers, and the deficit chart.
+ water:{nav:2,title:'Water Balance',html:c=>`
+ <div class="card" style="display:grid;justify-items:center;padding:8px">${gauge(c.pct)}</div>
  <div class="two"><div class="card"><div class="k">Crop use today</div><div class="v">${mm(c.etcNow)}</div></div><div class="card"><div class="k">Rain, 7 days</div><div class="v">${mm(c.rain7)}</div></div><div class="card"><div class="k">Deficit now</div><div class="v" style="color:var(--coral)">${mm(c.def)}</div></div><div class="card"><div class="k">Tomorrow</div><div class="v" style="color:var(--teal)">${mm(c.defT)}</div></div></div>
- <div class="card"><div class="k">Soil water deficit</div>${chart(c,220,96)}</div>`,2]);
- sc.push(['5. Irrigation Decision','Clear recommendation with reason, timing and quantity.',
- `<div class="card hero"><div style="font-size:11px;opacity:.85;margin-bottom:4px">${when}</div><div class="big ${c.yes?'yes':'no'}">${dec}</div></div>
+ <div class="card"><div class="k">Soil water deficit</div>${chart(c,220,96)}</div>
+ <a class="card" href="#decision"><b style="color:var(--deep)">Irrigate? ${c.dec}</b>${go}<div class="k">${c.when}</div></a>`},
+ // More: menu linking to the four screens that have no tab of their own.
+ more:{nav:4,title:'More',html:c=>`
+ <div class="card menu" style="padding:2px 11px">${MORE.map(([k,t,d])=>`<a class="row" href="#${k}"><span><b>${t}</b><span class="k">${d}</span></span><span class="chev">›</span></a>`).join('')}</div>`},
+ // Irrigation Decision: the answer, how much water (mm and m³ for the field; 1 m³ = 1000 litres), and why.
+ decision:{nav:0,parent:'home',title:'Irrigation Decision',html:c=>`
+ <div class="card hero"><div style="font-size:11px;opacity:.85;margin-bottom:4px">${c.when}</div><div class="big ${c.yes?'yes':'no'}">${c.dec}</div></div>
  <div class="two"><div class="card"><div class="k">Amount to apply</div><div class="v">${mm(c.qtyMm)}</div><div class="k">refills to field capacity</div></div><div class="card"><div class="k">Water for ${S.area} ha</div><div class="v">${c.m3}<small> m³</small></div><div class="k">${(c.m3*1000).toLocaleString('en-IN')} litres</div></div></div>
  <div class="card"><b style="font-size:12px;color:var(--deep)">Why?</b>
  <div class="why"><i></i><span>Deficit is ${c.def} mm, ${c.defT} mm after tomorrow's predicted use, against a ${c.trig} mm trigger (${S.soil}).</span></div>
- <div class="why"><i></i><span>Tomorrow's ET0 is taken as ${c.pet} mm and you expect ${(+S.rainTom||0)} mm of rain.</span></div>
- <div class="why"><i></i><span>${STAGES.find(s=>c.DAS>=s[1]&&c.DAS<s[2])?.[0]||'Season end'} stage, Kc ${c.kcNow.toFixed(2)}.${c.hasLast?` Last irrigated ${c.sinceLast} days ago.`:''}</span></div></div>`,2]);
- sc.push(['6. Crop Growth Timeline','Crop stages and how water demand changes.',
- `<div class="card" style="padding-bottom:2px"><div class="k" style="margin-bottom:8px">Wheat ${S.variety} · sown ${fmt(c.sow)}</div><div class="tl">${STAGES.map(([n,a,b,t])=>{const cls=c.DAS>=b?'done':(c.DAS>=a?'now':'');return `<div class="st ${cls}"><div class="dot"></div><div><b>${n}</b><div class="k">${fmt(add(c.sow,a))} to ${fmt(add(c.sow,b-1))} · ${b-a} days</div><div class="k">${t} · Kc ${kcAt(a).toFixed(2)} to ${kcAt(b-1).toFixed(2)}</div>${cls=='now'?`<div class="tag gold" style="display:inline-block;margin-top:3px">Now · day ${c.DAS-a+1} of ${b-a}</div>`:''}</div></div>`}).join('')}</div></div>`,1]);
- const evs=c.ev.slice().reverse();
- sc.push(['7. History','Irrigations this season at your trigger, and season totals.',
- `<div class="two"><div class="card"><div class="k">Irrigations called</div><div class="v">${c.ev.length}</div></div><div class="card"><div class="k">Water applied</div><div class="v">${c.ev.length*c.trig*10*S.area/1000>=1?r1(c.ev.length*c.trig*10*S.area):c.ev.length*c.trig*10*S.area}<small> m³</small></div></div><div class="card"><div class="k">Season rain</div><div class="v">${mm(r1(sum(D.rain.slice(c.sowI))))}</div></div><div class="card"><div class="k">Crop use</div><div class="v">${mm(r1(sum(D.et0.slice(c.sowI).map((e,i)=>e*kcAt(i)))))}</div></div></div>
- <div class="card" style="padding:4px 11px">${evs.length?evs.slice(0,6).map(e=>`<div class="row"><span>${fmt(e,{day:'numeric',month:'short',year:'numeric'})}</span><span class="tag">${c.trig} mm</span></div>`).join(''):'<div class="k" style="padding:8px 0">None called yet.</div>'}</div>`,2]);
- sc.push(['8. Settings','Inputs and data sources.',
- `<div class="card"><div class="row"><span>Soil / trigger</span><b>${S.soil} · ${c.trig} mm</b></div><div class="row"><span>Field</span><b>${S.area} ha</b></div><div class="row"><span>Units</span><b>mm, °C, km/h</b></div><div class="row"><span>Weather source</span><b>Open-Meteo</b></div><div class="row"><span>Cross-check</span><b>NASA POWER</b></div><div class="row"><span>Latest data</span><b>${fmt(ASOF,{day:'numeric',month:'short',year:'numeric'})}</b></div></div>
- <div class="card"><div class="k">Method</div><div style="font-weight:600;margin:2px 0">FAO-56 water balance</div><div class="k">Daily deficit = crop use (Kc x ET0) minus rain. Irrigate when the deficit reaches the trigger.</div></div>`,4]);
- document.getElementById('grid').innerHTML=sc.map(([t,d,h,nav,back],i)=>`<div class="item">${phone(i==0?'':t.slice(3),h,nav,i!=0)}<div class="cap"><b>${t}</b><p>${d}</p></div></div>`).join('');
+ <div class="why"><i></i><span>The AI model predicts tomorrow's ET0 at ${c.pet} mm (today ${c.today} mm), so the crop uses ${c.etcT} mm. You expect ${(+S.rainTom||0)} mm of rain.</span></div>
+ <div class="why"><i></i><span>${STAGES.find(s=>c.DAS>=s[1]&&c.DAS<s[2])?.[0]||'Season end'} stage, Kc ${c.kcNow.toFixed(2)}.${c.hasLast?` Last irrigated ${c.sinceLast} days ago.`:''}</span></div></div>
+ ${rainWarn(c)}`},
+ // Crop Growth Timeline: one row per stage with its dates and Kc range. A stage is "done" once DAS is past
+ // its end, and "now" while DAS is inside it.
+ timeline:{nav:4,parent:'more',title:'Crop Growth Timeline',html:c=>`
+ <div class="card" style="padding-bottom:2px"><div class="k" style="margin-bottom:8px">Wheat ${S.variety} · sown ${fmt(c.sow)}</div><div class="tl">${STAGES.map(([n,a,b,t])=>{const cls=c.DAS>=b?'done':(c.DAS>=a?'now':'');return `<div class="st ${cls}"><div class="dot"></div><div><b>${n}</b><div class="k">${fmt(add(c.sow,a))} to ${fmt(add(c.sow,b-1))} · ${b-a} days</div><div class="k">${t} · Kc ${kcAt(a).toFixed(2)} to ${kcAt(b-1).toFixed(2)}</div>${cls=='now'?`<div class="tag gold" style="display:inline-block;margin-top:3px">Now · day ${c.DAS-a+1} of ${b-a}</div>`:''}</div></div>`}).join('')}</div></div>`},
+ // History: irrigations the trigger rule would have called this season (newest first, last 6 shown), water
+ // applied (each event refills the trigger amount), and season totals of rain and crop use (Kc x ET0).
+ history:{nav:4,parent:'more',title:'History',html:c=>{const evs=c.ev.slice().reverse(), m3=r1(c.ev.length*c.trig*10*S.area);return `
+ <div class="two"><div class="card"><div class="k">Irrigations called</div><div class="v">${c.ev.length}</div></div><div class="card"><div class="k">Water applied</div><div class="v">${m3}<small> m³</small></div></div><div class="card"><div class="k">Season rain</div><div class="v">${mm(r1(sum(D.rain.slice(c.sowI))))}</div></div><div class="card"><div class="k">Crop use</div><div class="v">${mm(r1(sum(D.et0.slice(c.sowI).map((e,i)=>e*kcAt(i)))))}</div></div></div>
+ <div class="card" style="padding:4px 11px">${evs.length?evs.slice(0,6).map(e=>`<div class="row"><span>${fmt(e,{day:'numeric',month:'short',year:'numeric'})}</span><span class="tag">${c.trig} mm</span></div>`).join(''):'<div class="k" style="padding:8px 0">None called yet.</div>'}</div>`}},
+ // Settings: current field settings (tap to edit), data sources, the model's description and test scores, the method.
+ settings:{nav:4,parent:'more',title:'Settings',html:c=>`
+ <a class="card" href="#field" style="padding:2px 11px"><div class="row"><span>Soil / trigger</span><b>${S.soil} · ${c.trig} mm ›</b></div><div class="row"><span>Field</span><b>${S.area} ha ›</b></div></a>
+ <div class="card"><div class="row"><span>Units</span><b>mm, °C, km/h</b></div><div class="row"><span>Weather source</span><b>Open-Meteo</b></div><div class="row"><span>Cross-check</span><b>NASA POWER</b></div><div class="row"><span>Latest data</span><b>${fmt(ASOF,{day:'numeric',month:'short',year:'numeric'})}</b></div></div>
+ <div class="card"><div class="k">ET0 model</div><div style="font-weight:600;margin:2px 0">${M.name}</div><div class="k">Trained on ${M.train}, tested on ${M.test} (${M.n_test} days). Test error ${M.mae} mm/day against ${M.mae_pers} for "tomorrow = today", ${M.skill>0?'+':''}${M.skill}% better. Inputs: today's ET0, temperatures, wind, radiation, humidity, rain, day of season, yesterday's and 3-day ET0.</div></div>
+ <div class="card"><div class="k">Method</div><div style="font-weight:600;margin:2px 0">FAO-56 water balance</div><div class="k">Daily deficit = crop use (Kc x ET0) minus rain. Tomorrow uses the model's ET0. Irrigate when the deficit reaches the trigger.</div></div>`},
+};
+
+/* ==== 7. APP SHELL: drawing, navigation and input handling ================================== */
+const app=document.getElementById('app');
+let cur='home';   // key of the screen currently shown
+
+// Draw the whole phone for the current screen: top bar (with back arrow if the screen has a parent),
+// the screen's content, and the tab bar. Called on navigation and on reset.
+function render(){
+ const c=calc(), s=SCREENS[cur];
+ const back=s.parent?`<a class="back" href="#${s.parent}" aria-label="Back">‹</a>`:'';
+ app.innerHTML=`<div class="phone"><div class="scr"><div class="bar"></div><div class="top">${back}${s.title}</div><div class="body">${s.html(c)}</div>${NAV(s.nav)}</div></div>`;
 }
-const grid=document.getElementById('grid');
+/* While typing, refresh only the output part of the screen so the input being edited is never replaced. */
+function update(){const o=document.getElementById('out'), s=SCREENS[cur];if(o&&s.out)o.innerHTML=s.out(calc())}
+// Navigation: the URL hash names the screen (#water -> SCREENS.water). Unknown or empty hash -> Home.
+// Because each screen has its own URL, the browser's back button and page refresh keep working.
+function route(){const k=location.hash.slice(1);cur=SCREENS[k]?k:'home';render()}
+// Runs whenever any input or dropdown in the phone changes. data-k says which part of S to update:
+//   w_xxx   today's weather value xxx (an empty box counts as 0)
+//   area    field area, never below 0.1 ha
+//   rainTom kept as typed; calc() converts it to a number
+//   others  (soil, variety, sow, last) stored as they are
 function onEdit(e){
  const el=e.target.closest('[data-k]');if(!el)return;
- const k=el.dataset.k,v=el.value, id=el.id, pos=el.selectionStart;
+ const k=el.dataset.k,v=el.value;
  if(k.startsWith('w_'))S.wx[k.slice(2)]=v===''?0:+v; else if(k=='area')S.area=Math.max(0.1,+v||0.1); else if(k=='rainTom')S.rainTom=v; else S[k]=v;
- if(k=='sow'&&S.last&&S.last<=S.sow)S.last='';
- render();
- const n=document.getElementById(id);if(n&&e.type=='input'&&el.tagName=='INPUT'){n.focus();try{n.setSelectionRange(pos,pos)}catch(_){}}
+ // A new sowing date moves the earliest allowed last-irrigation date, and clears a last irrigation that is now before sowing.
+ if(k=='sow'){const l=document.getElementById('last');if(l){l.min=S.sow;if(S.last&&S.last<=S.sow){S.last='';l.value=''}}}
+ update();
 }
-grid.addEventListener('input',onEdit);grid.addEventListener('change',e=>{if(e.target.tagName=='SELECT')onEdit(e)});
+// One listener on the phone catches edits from every input inside it ('input' while typing, 'change' for dropdowns and dates).
+app.addEventListener('input',onEdit);app.addEventListener('change',onEdit);
+window.addEventListener('hashchange',route);   // tapping a link changes the hash -> show that screen
 document.getElementById('reset').onclick=()=>{S=JSON.parse(JSON.stringify(DEF));render()};
-render();
+document.getElementById('asof').textContent=fmt(ASOF,{day:'numeric',month:'short',year:'numeric'});   // footer date
+route();   // first draw: show the screen named in the URL, or Home
 </script>
+</body>
+</html>

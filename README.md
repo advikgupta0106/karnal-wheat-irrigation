@@ -33,4 +33,4 @@ write-up.
 python dashboard/build.py   # embeds data/karnal_daily.csv into dashboard/index.html
 ```
 
-Open `dashboard/index.html` in a browser. Enter field details and the weather; the irrigation call, deficit and water volume update. Tomorrow ET0 is taken as equal to todays (persistence).
+Open `dashboard/index.html` in a browser. Enter field details and the weather; the irrigation call, deficit and water volume update. Tomorrow's ET0 comes from the notebook's best model, linear regression on 11 features (Cells 47-52). `build.py` refits it in plain Python and stops if its test MAE does not match the notebook's 0.2980 mm/day.
