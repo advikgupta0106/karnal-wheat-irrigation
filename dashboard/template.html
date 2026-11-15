@@ -1,4 +1,5 @@
 <title>Karnal Wheat Irrigation Advisor</title>
+<meta charset="utf-8">
 <meta name="claude:viewport-fit-sides" content="cover">
 <style>
 /* Inter, latin subset, embedded as a data: URI so the page makes ZERO network requests.
@@ -25,6 +26,7 @@ src:url(data:font/woff2;base64,d09GMgABAAAAAL0wABQAAAAB4AgAALy3AAEAAAAAAAAAAAAAA
 *{box-sizing:border-box}
 body{background:#FAF7EF;color:#333A32;font-family:var(--font);margin:0;font-size:15px;line-height:1.45}
 /* Slim honesty strip, fixed to the top of every screen. */
+.live{font-weight:600}
 .strip{position:fixed;top:0;left:0;right:0;z-index:40;background:#E9DFC9;border-bottom:1px solid #DDE4D9;color:#68766E;font-size:12px;line-height:1.35;
  padding:7px max(12px,env(safe-area-inset-right,0px)) 7px max(12px,env(safe-area-inset-left,0px));padding-top:calc(7px + env(safe-area-inset-top,0px));text-align:center}
 .app{padding-top:46px;padding-bottom:calc(76px + env(safe-area-inset-bottom,0px))}
@@ -110,7 +112,7 @@ svg text{font-family:var(--font);fill:var(--mut);font-size:8px}
  .tabs{display:none}
 }
 </style>
-<div class="strip" role="note">Prototype. Replays archived Karnal weather to __ASOF__. Not a live system. Not expert farm advice.</div>
+<div class="strip" role="note">Prototype. Replays archived Karnal weather to __ASOF__. Not a live system. Not expert farm advice. <span class="live" id="live"></span></div>
 <nav class="sidebar" id="sidebar" aria-label="Sections"></nav>
 <div class="app">
  <main class="pad">
@@ -122,7 +124,9 @@ svg text{font-family:var(--font);fill:var(--mut);font-size:8px}
 <nav class="tabs" id="tabs" aria-label="Sections"></nav>
 <script>
 const D=__DATA__;
-const N=D.dates.length, LAST=N-1, ASOF=D.dates[LAST];
+let N=D.dates.length, LAST=N-1, ASOF=D.dates[LAST];
+// Baked rows carry their product (era5 / forecast-analysis). Older builds had none.
+if(!D.source) D.source=D.dates.map(()=>'era5');
 /* Trigger scenarios, not soil measurements. FAO-56 sets the trigger from soil texture
    and rooting depth; we have neither for Karnal, so these are the notebook's scenarios. */
 const TRIGGERS=[40,60,80], ACRE_HA=0.4047;
@@ -133,7 +137,7 @@ const SEASON_Y=seasonYear(ASOF)??(+ASOF.slice(0,4)-1);
 const SEASON=`${SEASON_Y}-${String(SEASON_Y+1).slice(2)}`;
 const clampDate=(d,lo,hi)=>d<lo?lo:(d>hi?hi:d);
 const SOW_MIN=clampDate(`${SEASON_Y}-11-01`,D.dates[0],ASOF), SOW_MAX=clampDate(`${SEASON_Y}-12-15`,D.dates[0],ASOF);
-const DEF={area:1,areaUnit:'hectares',trig:60,sow:clampDate(`${SEASON_Y}-11-15`,SOW_MIN,SOW_MAX),last:'',rainTom:0,wx:{et0:D.et0[LAST],tmax:D.tmax[LAST],tmin:D.tmin[LAST],rh:D.rh[LAST],wind:D.wind[LAST],rad:D.rad[LAST],rain:D.rain[LAST]}};
+const DEF={area:1,areaUnit:'hectares',trig:60,sow:clampDate(`${SEASON_Y}-11-01`,SOW_MIN,SOW_MAX),last:'',rainTom:0,wx:{et0:D.et0[LAST],tmax:D.tmax[LAST],tmin:D.tmin[LAST],rh:D.rh[LAST],wind:D.wind[LAST],rad:D.rad[LAST],rain:D.rain[LAST]}};
 let S=JSON.parse(JSON.stringify(DEF));
 /* Tomorrow's ET0 = today's ET0 (the notebook's persistence rule). */
 /* ---- OUR MODEL: the Step 4 pipeline, exported from the notebook ---------------------
@@ -181,6 +185,9 @@ const predictPersistence=(wx)=>Math.max(0,+wx.et0||0);
 const predict=(wx)=>Math.max(0,predictModel(LAST,wx));
 /* ---- crop curve and water balance (FAO-56 Kc, notebook stage lengths) ---- */
 const SEG=[25,55,45,25],KCI=.7,KCM=1.15,KCE=.4;
+// Season length is the SUM of the stage lengths - derived, never typed, so it cannot
+// drift from the Kc curve those same stages build.
+const SEASON_DAYS=SEG.reduce((a,b)=>a+b,0);   // 25+55+45+25 = 150
 const kcAt=(d)=>{d=Math.max(0,Math.min(149,d));if(d<25)return KCI;if(d<80)return KCI+(KCM-KCI)*(d-24)/55;if(d<125)return KCM;return KCM+(KCE-KCM)*(d-124)/25};
 const STAGES=[['Initial',0,25,'Emergence and early tillering'],['Development',25,80,'Tillering to jointing and booting'],['Mid-season',80,125,'Heading, flowering, early grain fill'],['Late season',125,150,'Grain fill to maturity']];
 /* All three helpers below treat a date string as a CALENDAR date by pinning it to UTC
@@ -196,14 +203,25 @@ function calc(){
  let sowI=idx(S.sow);if(sowI<0)sowI=Math.max(0,LAST-136);
  const sow=D.dates[sowI], DAS=LAST-sowI;
  const kc=i=>kcAt(i-sowI);
+ /* The balance stops at the end of the crop season, not at the end of the data file.
+    Two bounds apply, whichever bites first:
+      1. SEASON_DAYS after sowing - summed from SEG, so the cap and the Kc curve can
+         never drift apart: change a stage length and both move together.
+      2. 31 March of the season's closing year - the same Nov-Mar window the notebook's
+         wheat_season() uses, so a replay here counts exactly the days it counts.
+    ...and never past the last day we actually have data for. */
+ const _sy=seasonYear(sow);                       // November year of the sowing season
+ const seasonEnd=_sy===null?D.dates[LAST]:`${_sy+1}-03-31`;
+ let endI=Math.min(LAST,sowI+SEASON_DAYS-1);
+ while(endI>sowI&&D.dates[endI]>seasonEnd) endI--;  // walk back out of April onwards
  // Run the balance from sowing first, so an empty 'last irrigation' can fall back to
  // the most recent event this balance itself produces, rather than an invented date.
- let d2=0;const ev=[];for(let i=sowI;i<=LAST;i++){d2=Math.max(0,d2+kc(i)*Math.max(0,D.et0[i])-D.rain[i]);if(d2>=trig){ev.push(D.dates[i]);d2=0}}
+ let d2=0;const ev=[];for(let i=sowI;i<=endI;i++){d2=Math.max(0,d2+kc(i)*Math.max(0,D.et0[i])-D.rain[i]);if(d2>=trig){ev.push(D.dates[i]);d2=0}}
  const lastEst=ev.length?ev[ev.length-1]:'', lastUsed=S.last||lastEst, lastIsEst=!S.last&&!!lastEst;
- const li=lastUsed?idx(lastUsed):-1, hasLast=li>=sowI&&li<=LAST;
+ const li=lastUsed?idx(lastUsed):-1, hasLast=li>=sowI&&li<=endI;
  const start=hasLast?li+1:sowI;
  let def=0;const ser=[];
- for(let i=start;i<=LAST;i++){def=Math.max(0,def+kc(i)*Math.max(0,D.et0[i])-D.rain[i]);ser.push(r1(def))}
+ for(let i=start;i<=endI;i++){def=Math.max(0,def+kc(i)*Math.max(0,D.et0[i])-D.rain[i]);ser.push(r1(def))}
  const pet=predict(S.wx), kcT=kcAt(DAS+1), etcT=kcT*pet, rainT=+S.rainTom||0;
  const defT=Math.max(0,def+etcT-rainT);
  const days=defT>=trig?0:Math.ceil((trig-defT)/Math.max(0.5,etcT)), yes=defT>=trig||days<=1;
@@ -371,6 +389,10 @@ function render(){
   : S_.body(c,dec,when);
  document.getElementById('scr').innerHTML=html;
  document.getElementById('title').textContent=S_.title;
+ // Keep the header's as-of in step with the data actually loaded. It starts as the
+ // baked date (correct before any script runs) and follows ASOF after a live top-up.
+ const _sub=document.querySelector('.subt');
+ if(_sub) _sub.textContent=`Karnal, Haryana \u00b7 As of ${asOf()}`;
  // The back arrow appears only on sub-screens, and returns to that section's index.
  const back=document.getElementById('back');
  back.hidden=!S_.back;
@@ -398,5 +420,89 @@ function onEdit(e){
 document.addEventListener('input',onEdit);
 document.addEventListener('change',e=>{if(e.target.tagName=='SELECT')onEdit(e)});
 window.addEventListener('hashchange',render);
-render();
+render();            // the page is fully usable from here on; nothing below blocks it
+
+/* ---- LIVE DAILY TOP-UP ------------------------------------------------------------
+   Runs AFTER the first render, never before: the page is complete and interactive from
+   baked data alone. Everything below is best-effort and fails silent-but-visible.
+
+   Endpoint parameters are deliberately identical to the notebook's download cell -
+   same seven daily variables, timezone Asia/Kolkata, so wind stays km/h and radiation
+   stays MJ/m2. Different units here would not error; they would silently poison the
+   model's inputs, which is far worse. */
+const LIVE_VARS=['et0_fao_evapotranspiration','precipitation_sum','temperature_2m_max',
+ 'temperature_2m_min','wind_speed_10m_max','shortwave_radiation_sum','relative_humidity_2m_mean'];
+const LIVE_KEY={et0_fao_evapotranspiration:'et0',precipitation_sum:'rain',temperature_2m_max:'tmax',
+ temperature_2m_min:'tmin',wind_speed_10m_max:'wind',shortwave_radiation_sum:'rad',
+ relative_humidity_2m_mean:'rh'};
+const LIVE_TZ='Asia/Kolkata', LIVE_TIMEOUT=3000, LIVE_MAX_DAYS=14;
+const say=t=>{const el=document.getElementById('live'); if(el) el.textContent=t;};
+// "Today" in the farmer's timezone, not the viewer's, so we never ask for a future IST day.
+const istToday=()=>new Intl.DateTimeFormat('en-CA',{timeZone:LIVE_TZ,year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
+const nextDay=d=>add(d,1);
+
+async function topUp(){
+ const baked=D.dates[D.dates.length-1], today=istToday();
+ if(today<=baked){ say('· Up to date'); return; }
+ // Build the exact list of days we need. Any one of them missing voids the whole batch.
+ const need=[]; for(let d=nextDay(baked); d<=today; d=nextDay(d)) need.push(d);
+ if(need.length>LIVE_MAX_DAYS){ say(`· Offline - showing data to ${fmt(baked,{day:'numeric',month:'short',year:'numeric'})}`); return; }
+
+ const ctl=new AbortController(), timer=setTimeout(()=>ctl.abort(),LIVE_TIMEOUT);
+ try{
+  const url='https://api.open-meteo.com/v1/forecast?latitude=29.69&longitude=76.99'
+   +'&daily='+LIVE_VARS.join(',')+'&timezone='+encodeURIComponent(LIVE_TZ)
+   +'&past_days='+LIVE_MAX_DAYS+'&forecast_days=1';
+  const res=await fetch(url,{signal:ctl.signal});
+  clearTimeout(timer);
+  if(!res.ok) throw new Error('HTTP '+res.status);
+  const j=await res.json(), dly=j&&j.daily;
+  if(!dly||!Array.isArray(dly.time)) throw new Error('malformed payload');
+
+  // GAP CHECK: every needed day must be present. A balance with a hole is worse than an
+  // old one, so a partial range is discarded entirely - never interpolated or filled.
+  const byDate=new Map(dly.time.map((d,i)=>[d,i]));
+  const rows=[];
+  for(const d of need){
+   if(!byDate.has(d)) throw new Error('gap at '+d);
+   const i=byDate.get(d), row={date:d};
+   for(const v of LIVE_VARS){
+    const arr=dly[v];
+    if(!Array.isArray(arr)) throw new Error('missing variable '+v);
+    const val=arr[i];
+    // Reject the WHOLE batch if any value is absent or not a finite number.
+    if(val===null||val===undefined||!Number.isFinite(+val)) throw new Error('null '+v+' on '+d);
+    row[LIVE_KEY[v]]=+val;
+   }
+   rows.push(row);
+  }
+
+  // Append to a COPY first, so a failed validation leaves the live arrays untouched.
+  const keys=['et0','rain','tmax','tmin','wind','rad','rh'];
+  const snapshot={dates:D.dates.slice(),source:D.source.slice()};
+  keys.forEach(k=>snapshot[k]=D[k].slice());
+  rows.forEach(r=>{snapshot.dates.push(r.date);snapshot.source.push('live');keys.forEach(k=>snapshot[k].push(r[k]));});
+
+  // Validate the 11 MODEL FEATURES on every new row, using the page's own feature builder.
+  // The four derived features (day_of_season and the three lags) only exist once the row
+  // sits in the series, which is why this check runs on the appended copy.
+  const prevD={...D}; Object.assign(D,snapshot); const prevN=N,prevLAST=LAST,prevASOF=ASOF;
+  N=D.dates.length; LAST=N-1; ASOF=D.dates[LAST];
+  let ok=true, why='';
+  for(let i=prevN;i<N;i++){
+   const wx={et0:D.et0[i],tmax:D.tmax[i],tmin:D.tmin[i],rh:D.rh[i],wind:D.wind[i],rad:D.rad[i],rain:D.rain[i]};
+   const f=features(i,wx);
+   if(f.length!==11||!f.every(Number.isFinite)){ ok=false; why='feature check failed on '+D.dates[i]; break; }
+  }
+  if(!ok){ Object.assign(D,prevD); N=prevN; LAST=prevLAST; ASOF=prevASOF; throw new Error(why); }
+
+  render();
+  say('· Updated to '+fmt(ASOF,{day:'numeric',month:'short',year:'numeric'}));
+ }catch(err){
+  clearTimeout(timer);
+  // Offline, timed out, rejected batch - all land here. Nothing changed; say so plainly.
+  say('· Offline - showing data to '+fmt(D.dates[D.dates.length-1],{day:'numeric',month:'short',year:'numeric'}));
+ }
+}
+topUp();
 </script>

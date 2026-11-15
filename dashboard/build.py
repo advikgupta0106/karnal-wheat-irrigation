@@ -20,6 +20,9 @@ rows = list(csv.DictReader(open(ROOT / "data" / "karnal_daily.csv")))
 data = {"dates": [r["date"] for r in rows]}
 for key, col in COLS.items():
     data[key] = [float(r[col]) for r in rows]
+# Which product each baked row came from (era5 / forecast-analysis). The page appends
+# "live" for anything it tops up itself, so all three stay distinguishable in the browser.
+data["source"] = [r.get("source", "era5") for r in rows]
 
 # The as-of date is the last day in the data. It is injected, never typed by hand,
 # so the banner and footer can never drift from what the page actually replays.
